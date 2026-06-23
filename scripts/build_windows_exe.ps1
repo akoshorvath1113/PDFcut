@@ -12,11 +12,11 @@ Write-Host "Using Python:"
 & $Python --version
 
 if (Test-Path ".venv") {
-    Write-Host "Reusing existing .venv"
-} else {
-    & $Python -m venv .venv
+    Write-Host "Removing existing .venv so the package build starts cleanly"
+    Remove-Item -Recurse -Force ".venv"
 }
 
+& $Python -m venv .venv
 & ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
 & ".\.venv\Scripts\python.exe" -m pip install -r requirements-build.txt
 
