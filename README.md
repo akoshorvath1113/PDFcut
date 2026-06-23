@@ -51,18 +51,42 @@ Rectangle coordinates are PDF points with a top-left origin:
 
 A4 defaults to approximately `595 x 842` points. The starter rectangle removes the middle band of an A4 page.
 
-## Build a local Windows `.exe`
+## Build a sendable Windows package
 
-Windows `.exe` files must be built on Windows. From a Windows PowerShell prompt:
+Windows `.exe` files must be built on Windows. From a Windows PowerShell prompt in the project folder:
 
 ```powershell
 .\scripts\build_windows_exe.ps1
 ```
 
-The executable will be created at:
+The script creates a portable zip file:
 
 ```text
-dist\PDFBatchRedactor.exe
+dist\PDFBatchRedactor-Windows.zip
+```
+
+Send that zip file to the receiver. They should extract it and double-click:
+
+```text
+PDFBatchRedactor.exe
+```
+
+If Windows SmartScreen appears, they can choose **More info** and then **Run anyway**.
+
+### Build the sendable zip with GitHub Actions
+
+This repository also includes a workflow that builds the Windows package on a Windows runner.
+
+1. Open the repository on GitHub.
+2. Go to **Actions**.
+3. Choose **Build Windows EXE**.
+4. Click **Run workflow**.
+5. When it finishes, download the **PDFBatchRedactor-Windows** artifact.
+
+The artifact contains:
+
+```text
+PDFBatchRedactor-Windows.zip
 ```
 
 On Linux, you can build a Linux executable instead:
@@ -86,6 +110,8 @@ tests/
 scripts/
   build_windows_exe.ps1
   build_linux_binary.sh
+.github/workflows/
+  build-windows-exe.yml
 ```
 
 ## Tests

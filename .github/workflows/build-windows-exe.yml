@@ -1,0 +1,62 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "cursor/**"
+
+jobs:
+  build-windows:
+    name: Build portable Windows package
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+
+      - name: Run tests
+        run: python -m unittest discover -s tests
+
+      - name: Build executable
+        run: python -m PyInstaller --clean --noconsole --onefile --name PDFBatchRedactor main.py
+
+      - name: Create portable zip
+        shell: pwsh
+        run: |
+          $AppName = "PDFBatchRedactor"
+          $PortableFolder = "dist\$AppName-Windows"
+          New-Item -ItemType Directory -Force -Path $PortableFolder | Out-Null
+          Move-Item "dist\$AppName.exe" "$PortableFolder\$AppName.exe"
+          @"
+          PDF Batch Redactor
+          ==================
+
+          How to run:
+          1. Extract this zip file.
+          2. Double-click $AppName.exe.
+          3. If Windows SmartScreen appears, choose More info, then Run anyway.
+
+          Notes:
+          - Original PDF files are never overwritten.
+          - Choose an output folder that is separate from your source PDF folder.
+          - The first startup can take a few seconds because this is a self-contained app.
+          "@ | Set-Content -Path "$PortableFolder\README.txt" -Encoding UTF8
+          Compress-Archive -Path "$PortableFolder\*" -DestinationPath "dist\$AppName-Windows.zip" -Force
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDFBatchRedactor-Windows
+          path: dist/PDFBatchRedactor-Windows.zip
