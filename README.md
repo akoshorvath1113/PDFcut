@@ -26,11 +26,11 @@ Original PDFs are never saved in place. The app refuses to write into the same f
 Python 3.10+ is recommended.
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pdf_redactor
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements.txt
+python3 -m pdf_redactor
 ```
 
 On Windows, activate the environment with:
@@ -91,5 +91,5 @@ scripts/
 ## Tests
 
 ```bash
-python -m unittest
+python3 -m unittest discover -s tests
 ```
