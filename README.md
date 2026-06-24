@@ -1,23 +1,25 @@
 # PDFcut
 
-PDFcut is a small Python desktop application for batch-removing sensitive regions from standardized PDF documents.
+PDFcut is a small Python desktop application for batch-removing sensitive regions from standardized PDF documents and merging PDF files.
 
-The first working version supports:
+The app supports:
 
 - selecting one PDF file or one folder of PDF files
 - previewing the first page of the selected PDF
-- dragging a rectangle on the preview or entering coordinates manually
+- dragging rectangles on the preview or entering coordinates manually
+- adding multiple cut rectangles to one redaction job
 - applying the removal to all pages or selected pages such as `1,3-5`
 - writing modified copies to a separate output folder with a configurable suffix
+- merging multiple PDF files in a user-controlled order
 - batch progress and a processing summary/error log
 
 ## Privacy behavior
 
-The default mode is **Collapse vertical gap after removal**. It removes the horizontal band covered by the rectangle's top and bottom coordinates, then moves the content below the removed band upward on the output page.
+The default mode is **Collapse vertical gaps after removal**. It removes the horizontal bands covered by the cut rectangles' top and bottom coordinates, then moves the content below those removed bands upward on the output page.
 
 For stronger privacy in this adjusted mode, the kept page regions are rasterized into the new PDF. This means removed content is not retained as hidden text behind a clipping mask, but text in the kept regions will no longer be selectable.
 
-If you disable collapse mode, PDFcut applies a normal PyMuPDF redaction annotation to the selected rectangle and keeps the page layout unchanged.
+If you disable collapse mode, PDFcut applies normal PyMuPDF redaction annotations to every selected rectangle and keeps the page layout unchanged.
 
 Original PDFs are never saved in place. The app refuses to write into the same folder as the selected source PDF and generates unique output filenames if a target file already exists.
 
@@ -50,6 +52,23 @@ Rectangle coordinates are PDF points with a top-left origin:
 - `x1`, `y1`: bottom-right corner
 
 A4 defaults to approximately `595 x 842` points. The starter rectangle removes the middle band of an A4 page.
+
+## Multiple cuts and merging
+
+Use the **Redact / Cut PDFs** tab to define several cut rectangles:
+
+1. Select a PDF or folder.
+2. Drag a rectangle on the preview, or type coordinates.
+3. Click **Add cut**.
+4. Repeat for every sensitive area.
+5. Click **Start redaction batch**.
+
+Use the **Merge PDFs** tab to combine files:
+
+1. Click **Add PDFs**.
+2. Arrange the order with **Move up** and **Move down**.
+3. Choose the merged output PDF path.
+4. Click **Merge PDFs**.
 
 ## Build a sendable Windows package
 
@@ -102,6 +121,7 @@ pdf_redactor/
   app_logging.py     logging setup
   batch.py           file/folder discovery and safe output handling
   config.py          settings dataclasses and page selection parsing
+  pdf_merger.py      PDF merge logic
   pdf_processor.py   PDF redaction/removal logic
   ui.py              Tkinter desktop UI
   __main__.py        application entry point

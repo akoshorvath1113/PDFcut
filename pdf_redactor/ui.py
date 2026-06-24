@@ -89,7 +89,6 @@ class PdfRedactorApp:
 
         header = ttk.Frame(self.root, style="TFrame")
         header.grid(row=0, column=0, sticky="ew")
-        header.configure(style="Header.TLabel")
         self._build_header(header)
 
         self.notebook = ttk.Notebook(self.root)
