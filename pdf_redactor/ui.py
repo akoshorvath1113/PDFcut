@@ -26,8 +26,8 @@ class PdfRedactorApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("PDF Batch Redactor")
-        self.root.geometry("1220x820")
-        self.root.minsize(1060, 720)
+        self.root.geometry("1100x720")
+        self.root.minsize(820, 520)
 
         self.input_path_var = tk.StringVar()
         self.output_folder_var = tk.StringVar()
@@ -121,6 +121,7 @@ class PdfRedactorApp:
             banner,
             text="Remove one or more sensitive areas, batch process standardized PDFs, or merge files in order.",
             style="Subheader.TLabel",
+            wraplength=900,
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
     def _build_redact_tab(self, parent: ttk.Frame) -> None:
@@ -128,8 +129,7 @@ class PdfRedactorApp:
         parent.columnconfigure(1, weight=1)
         parent.rowconfigure(0, weight=1)
 
-        controls = ttk.Frame(parent, padding=10)
-        controls.grid(row=0, column=0, sticky="ns")
+        controls = self._build_scrollable_controls(parent)
         preview_area = ttk.Frame(parent, padding=(0, 10, 10, 10))
         preview_area.grid(row=0, column=1, sticky="nsew")
         preview_area.columnconfigure(0, weight=1)
@@ -139,6 +139,37 @@ class PdfRedactorApp:
         self._build_settings_card(controls)
         self._build_cuts_card(controls)
         self._build_preview_card(preview_area)
+
+    def _build_scrollable_controls(self, parent: ttk.Frame) -> ttk.Frame:
+        container = ttk.Frame(parent)
+        container.grid(row=0, column=0, sticky="ns")
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(container, width=410, background="#eef2f7", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        controls = ttk.Frame(canvas, padding=10)
+        window_id = canvas.create_window((0, 0), window=controls, anchor="nw")
+
+        canvas.grid(row=0, column=0, sticky="ns")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        controls.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
+        canvas.bind("<Enter>", lambda _event: self._bind_mousewheel(canvas))
+        canvas.bind("<Leave>", lambda _event: self._unbind_mousewheel(canvas))
+        return controls
+
+    def _bind_mousewheel(self, canvas: tk.Canvas) -> None:
+        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+        canvas.bind_all("<Button-4>", lambda _event: canvas.yview_scroll(-1, "units"))
+        canvas.bind_all("<Button-5>", lambda _event: canvas.yview_scroll(1, "units"))
+
+    def _unbind_mousewheel(self, canvas: tk.Canvas) -> None:
+        canvas.unbind_all("<MouseWheel>")
+        canvas.unbind_all("<Button-4>")
+        canvas.unbind_all("<Button-5>")
 
     def _build_input_card(self, parent: ttk.Frame) -> None:
         frame = self._card(parent, "1. Choose input and output", row=0)
@@ -351,8 +382,8 @@ class PdfRedactorApp:
             return
 
         page = self.preview_doc.load_page(0)
-        canvas_width = max(self.canvas.winfo_width(), 640)
-        canvas_height = max(self.canvas.winfo_height(), 720)
+        canvas_width = max(self.canvas.winfo_width(), 220)
+        canvas_height = max(self.canvas.winfo_height(), 260)
         scale = min((canvas_width - 30) / page.rect.width, (canvas_height - 30) / page.rect.height, 2.0)
         pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
         self.preview_image = tk.PhotoImage(data=pixmap.tobytes("png"))
