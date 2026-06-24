@@ -8,6 +8,7 @@ import fitz
 
 from pdf_redactor.batch import process_batch, unique_output_path
 from pdf_redactor.config import ProcessingConfig, RectConfig
+from pdf_redactor.pdf_merger import PdfMergeError, merge_pdfs
 from pdf_redactor.pdf_processor import process_pdf
 
 
@@ -63,6 +64,59 @@ class PdfRedactorTests(unittest.TestCase):
             self.assertIn("BOTTOM", text)
             self.assertNotIn("SECRET", text)
 
+    def test_multiple_redaction_rectangles_remove_multiple_regions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_pdf = temp_path / "input.pdf"
+            output_pdf = temp_path / "out" / "input_redacted.pdf"
+            _make_pdf(input_pdf, page_count=1)
+
+            process_pdf(
+                input_pdf,
+                output_pdf,
+                ProcessingConfig(
+                    remove_rects=(
+                        RectConfig(0, 80, A4_WIDTH, 140),
+                        RectConfig(0, 300, A4_WIDTH, 390),
+                    ),
+                    output_folder=output_pdf.parent,
+                    collapse_vertical_gap=False,
+                ),
+            )
+
+            with fitz.open(output_pdf) as doc:
+                text = doc[0].get_text()
+
+            self.assertNotIn("TOP", text)
+            self.assertNotIn("SECRET", text)
+            self.assertIn("BOTTOM", text)
+
+    def test_multiple_collapse_rectangles_remove_multiple_bands(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_pdf = temp_path / "input.pdf"
+            output_pdf = temp_path / "out" / "input_redacted.pdf"
+            _make_pdf(input_pdf, page_count=1)
+
+            process_pdf(
+                input_pdf,
+                output_pdf,
+                ProcessingConfig(
+                    remove_rects=(
+                        RectConfig(0, 80, A4_WIDTH, 140),
+                        RectConfig(0, 300, A4_WIDTH, 390),
+                    ),
+                    output_folder=output_pdf.parent,
+                    collapse_vertical_gap=True,
+                ),
+            )
+
+            with fitz.open(output_pdf) as doc:
+                text = doc[0].get_text()
+
+            self.assertNotIn("TOP", text)
+            self.assertNotIn("SECRET", text)
+
     def test_selected_pages_only_processes_requested_pages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -108,15 +162,44 @@ class PdfRedactorTests(unittest.TestCase):
 
             self.assertEqual(output_folder / "input_redacted_1.pdf", output_path)
 
+    def test_merge_pdfs_combines_files_in_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            first_pdf = temp_path / "first.pdf"
+            second_pdf = temp_path / "second.pdf"
+            output_pdf = temp_path / "merged.pdf"
+            _make_pdf(first_pdf, page_count=1, label="FIRST")
+            _make_pdf(second_pdf, page_count=2, label="SECOND")
 
-def _make_pdf(path: Path, page_count: int) -> None:
+            merge_pdfs([first_pdf, second_pdf], output_pdf)
+
+            with fitz.open(output_pdf) as doc:
+                self.assertEqual(doc.page_count, 3)
+                self.assertIn("FIRST TOP PAGE 1", doc[0].get_text())
+                self.assertIn("SECOND TOP PAGE 1", doc[1].get_text())
+                self.assertIn("SECOND TOP PAGE 2", doc[2].get_text())
+
+    def test_merge_refuses_to_overwrite_source_pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            first_pdf = temp_path / "first.pdf"
+            second_pdf = temp_path / "second.pdf"
+            _make_pdf(first_pdf, page_count=1)
+            _make_pdf(second_pdf, page_count=1)
+
+            with self.assertRaisesRegex(PdfMergeError, "overwrite"):
+                merge_pdfs([first_pdf, second_pdf], first_pdf)
+
+
+def _make_pdf(path: Path, page_count: int, label: str = "") -> None:
     doc = fitz.open()
     try:
+        prefix = f"{label} " if label else ""
         for index in range(page_count):
             page = doc.new_page(width=A4_WIDTH, height=A4_HEIGHT)
-            page.insert_text((72, 100), f"TOP PAGE {index + 1}", fontsize=14)
-            page.insert_text((72, 345), f"SECRET PAGE {index + 1}", fontsize=14)
-            page.insert_text((72, 650), f"BOTTOM PAGE {index + 1}", fontsize=14)
+            page.insert_text((72, 100), f"{prefix}TOP PAGE {index + 1}", fontsize=14)
+            page.insert_text((72, 345), f"{prefix}SECRET PAGE {index + 1}", fontsize=14)
+            page.insert_text((72, 650), f"{prefix}BOTTOM PAGE {index + 1}", fontsize=14)
         doc.save(path)
     finally:
         doc.close()

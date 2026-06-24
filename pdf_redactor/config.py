@@ -56,6 +56,7 @@ class ProcessingConfig:
 
     page_size_name: str = "A4"
     remove_rect: RectConfig = RectConfig(0, 280, 595.276, 560)
+    remove_rects: tuple[RectConfig, ...] = ()
     apply_to_all_pages: bool = True
     selected_pages: str = ""
     output_folder: Path = Path("output")
@@ -69,8 +70,21 @@ class ProcessingConfig:
         except KeyError as exc:
             raise ValueError(f"Unsupported page size: {self.page_size_name}") from exc
 
+    @property
+    def cut_rects(self) -> tuple[RectConfig, ...]:
+        """Return all configured cut rectangles.
+
+        ``remove_rect`` is retained for older callers and tests. New UI code passes
+        ``remove_rects`` when the user defines one or more cuts.
+        """
+
+        return self.remove_rects or (self.remove_rect,)
+
     def validate(self) -> None:
-        self.remove_rect.validate()
+        if not self.cut_rects:
+            raise ValueError("At least one removal rectangle is required.")
+        for rect in self.cut_rects:
+            rect.validate()
         if not self.filename_suffix:
             raise ValueError("The output filename suffix cannot be empty.")
         if self.page_size_name not in PAGE_SIZES:

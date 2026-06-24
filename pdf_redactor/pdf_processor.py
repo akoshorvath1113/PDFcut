@@ -61,8 +61,10 @@ def _append_processed_page(
     output_width, output_height = _output_size(source_rect, config)
     output_page = output.new_page(width=output_width, height=output_height)
 
-    target_rect = _clamped_rect(config.remove_rect, output_width, output_height)
-    source_remove_rect = _scale_rect_to_source(target_rect, source_rect, output_width, output_height)
+    target_rects = [_clamped_rect(rect, output_width, output_height) for rect in config.cut_rects]
+    source_remove_rects = [
+        _scale_rect_to_source(rect, source_rect, output_width, output_height) for rect in target_rects
+    ]
 
     if config.collapse_vertical_gap:
         _draw_collapsed_page(
@@ -70,9 +72,8 @@ def _append_processed_page(
             source_page=page,
             source_rect=source_rect,
             output_width=output_width,
-            output_height=output_height,
-            target_rect=target_rect,
-            source_remove_rect=source_remove_rect,
+            target_rects=target_rects,
+            source_remove_rects=source_remove_rects,
         )
     else:
         _draw_redacted_page(
@@ -82,8 +83,7 @@ def _append_processed_page(
             source_rect=source_rect,
             output_width=output_width,
             output_height=output_height,
-            target_rect=target_rect,
-            source_remove_rect=source_remove_rect,
+            source_remove_rects=source_remove_rects,
         )
 
 
@@ -109,36 +109,39 @@ def _draw_collapsed_page(
     source_page: fitz.Page,
     source_rect: fitz.Rect,
     output_width: float,
-    output_height: float,
-    target_rect: fitz.Rect,
-    source_remove_rect: fitz.Rect,
+    target_rects: list[fitz.Rect],
+    source_remove_rects: list[fitz.Rect],
 ) -> None:
-    """Remove a horizontal band and move lower content upward.
+    """Remove horizontal bands and move lower content upward.
 
     PDF content streams are not a layout tree, so there is no universal way to reflow arbitrary
-    page content. This approach rasterizes only the source content above and below the selected
-    band into a new page. The rasterization is deliberate: it avoids carrying hidden text or vector
-    objects from the removed band into the output copy.
+    page content. This approach rasterizes only source content outside the selected bands into a
+    new page. The rasterization is deliberate: it avoids carrying hidden text or vector objects from
+    removed bands into the output copy.
     """
 
-    top_height = target_rect.y0
-    bottom_height = max(0, output_height - target_rect.y1)
+    target_bands = _merged_vertical_bands(target_rects)
+    source_bands = _merged_vertical_bands(source_remove_rects)
+    if len(target_bands) != len(source_bands):
+        raise PdfProcessingError("Could not map removal rectangles to source page bands.")
 
-    if top_height > 0:
+    target_segments = _kept_vertical_segments(target_bands, 0.0, output_page.rect.height)
+    source_segments = _kept_vertical_segments(source_bands, source_rect.y0, source_rect.y1)
+
+    dest_y = 0.0
+    for target_segment, source_segment in zip(target_segments, source_segments):
+        target_y0, target_y1 = target_segment
+        source_y0, source_y1 = source_segment
+        segment_height = max(0.0, target_y1 - target_y0)
+        if segment_height <= 0:
+            continue
         _insert_clip_as_image(
             output_page,
             source_page,
-            clip=fitz.Rect(source_rect.x0, source_rect.y0, source_rect.x1, source_remove_rect.y0),
-            dest=fitz.Rect(0, 0, output_width, top_height),
+            clip=fitz.Rect(source_rect.x0, source_y0, source_rect.x1, source_y1),
+            dest=fitz.Rect(0, dest_y, output_width, dest_y + segment_height),
         )
-
-    if bottom_height > 0:
-        _insert_clip_as_image(
-            output_page,
-            source_page,
-            clip=fitz.Rect(source_rect.x0, source_remove_rect.y1, source_rect.x1, source_rect.y1),
-            dest=fitz.Rect(0, top_height, output_width, top_height + bottom_height),
-        )
+        dest_y += segment_height
 
 
 def _draw_redacted_page(
@@ -148,16 +151,16 @@ def _draw_redacted_page(
     source_rect: fitz.Rect,
     output_width: float,
     output_height: float,
-    target_rect: fitz.Rect,
-    source_remove_rect: fitz.Rect,
+    source_remove_rects: list[fitz.Rect],
 ) -> None:
-    """Copy the page and remove the selected rectangle without layout collapse."""
+    """Copy the page and remove the selected rectangles without layout collapse."""
 
     temp = fitz.open()
     try:
         temp.insert_pdf(source, from_page=page_index, to_page=page_index)
         temp_page = temp.load_page(0)
-        temp_page.add_redact_annot(source_remove_rect, fill=(1, 1, 1))
+        for source_remove_rect in source_remove_rects:
+            temp_page.add_redact_annot(source_remove_rect, fill=(1, 1, 1))
         temp_page.apply_redactions()
         output_page.show_pdf_page(
             fitz.Rect(0, 0, output_width, output_height),
@@ -175,6 +178,39 @@ def _insert_clip_as_image(output_page: fitz.Page, source_page: fitz.Page, clip: 
     zoom = 150 / 72
     pixmap = source_page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
     output_page.insert_image(dest, stream=pixmap.tobytes("png"))
+
+
+def _merged_vertical_bands(rects: list[fitz.Rect]) -> list[tuple[float, float]]:
+    bands = sorted((rect.y0, rect.y1) for rect in rects if not rect.is_empty)
+    if not bands:
+        return []
+
+    merged: list[tuple[float, float]] = []
+    current_y0, current_y1 = bands[0]
+    for y0, y1 in bands[1:]:
+        if y0 <= current_y1:
+            current_y1 = max(current_y1, y1)
+        else:
+            merged.append((current_y0, current_y1))
+            current_y0, current_y1 = y0, y1
+    merged.append((current_y0, current_y1))
+    return merged
+
+
+def _kept_vertical_segments(
+    removal_bands: list[tuple[float, float]],
+    page_y0: float,
+    page_y1: float,
+) -> list[tuple[float, float]]:
+    kept: list[tuple[float, float]] = []
+    current_y = page_y0
+    for band_y0, band_y1 in removal_bands:
+        if band_y0 > current_y:
+            kept.append((current_y, band_y0))
+        current_y = max(current_y, band_y1)
+    if current_y < page_y1:
+        kept.append((current_y, page_y1))
+    return kept
 
 
 def _output_size(source_rect: fitz.Rect, config: ProcessingConfig) -> tuple[float, float]:
