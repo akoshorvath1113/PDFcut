@@ -43,6 +43,7 @@ class PdfRedactorApp:
         self.progress_var = tk.DoubleVar(value=0)
         self.status_var = tk.StringVar(value="Ready")
         self.merge_output_var = tk.StringVar()
+        self.preview_zoom_label_var = tk.StringVar(value="Fit width")
 
         self.cut_rects: list[RectConfig] = [DEFAULT_RECT]
         self.merge_paths: list[Path] = []
@@ -53,6 +54,8 @@ class PdfRedactorApp:
         self.preview_scale = 1.0
         self.preview_origin = (0.0, 0.0)
         self.preview_image: tk.PhotoImage | None = None
+        self.preview_zoom_mode = "fit_width"
+        self.preview_manual_scale = 1.25
         self.drag_start_pdf: tuple[float, float] | None = None
         self.worker_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
@@ -109,7 +112,7 @@ class PdfRedactorApp:
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Label(footer, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
-        ttk.Progressbar(footer, variable=self.progress_var, maximum=100).grid(row=0, column=1, sticky="e", ipadx=90)
+        ttk.Progressbar(footer, variable=self.progress_var, maximum=100, length=180).grid(row=0, column=1, sticky="e")
 
     def _build_header(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
@@ -125,16 +128,23 @@ class PdfRedactorApp:
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
     def _build_redact_tab(self, parent: ttk.Frame) -> None:
-        parent.columnconfigure(0, weight=0)
-        parent.columnconfigure(1, weight=1)
+        parent.columnconfigure(0, weight=1)
         parent.rowconfigure(0, weight=1)
 
-        controls = self._build_scrollable_controls(parent)
-        preview_area = ttk.Frame(parent, padding=(0, 10, 10, 10))
-        preview_area.grid(row=0, column=1, sticky="nsew")
+        splitter = ttk.PanedWindow(parent, orient="horizontal")
+        splitter.grid(row=0, column=0, sticky="nsew")
+
+        controls_area = ttk.Frame(splitter)
+        controls_area.columnconfigure(0, weight=1)
+        controls_area.rowconfigure(0, weight=1)
+        preview_area = ttk.Frame(splitter, padding=(8, 10, 10, 10))
         preview_area.columnconfigure(0, weight=1)
         preview_area.rowconfigure(1, weight=1)
 
+        splitter.add(controls_area, weight=0)
+        splitter.add(preview_area, weight=1)
+
+        controls = self._build_scrollable_controls(controls_area)
         self._build_input_card(controls)
         self._build_settings_card(controls)
         self._build_cuts_card(controls)
@@ -146,7 +156,7 @@ class PdfRedactorApp:
         container.rowconfigure(0, weight=1)
         container.columnconfigure(0, weight=1)
 
-        canvas = tk.Canvas(container, width=410, background="#eef2f7", highlightthickness=0)
+        canvas = tk.Canvas(container, width=330, background="#eef2f7", highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
         controls = ttk.Frame(canvas, padding=10)
         window_id = canvas.create_window((0, 0), window=controls, anchor="nw")
@@ -178,13 +188,13 @@ class PdfRedactorApp:
         frame.columnconfigure(2, weight=1)
 
         ttk.Label(frame, text="PDF file or folder", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w")
-        ttk.Entry(frame, textvariable=self.input_path_var, width=44).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 8))
+        ttk.Entry(frame, textvariable=self.input_path_var, width=30).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 8))
         ttk.Button(frame, text="Select PDF", command=self._choose_pdf).grid(row=3, column=0, sticky="ew")
         ttk.Button(frame, text="Select Folder", command=self._choose_folder).grid(row=3, column=1, sticky="ew", padx=6)
         ttk.Button(frame, text="Load Preview", command=self._load_preview_from_input).grid(row=3, column=2, sticky="ew")
 
         ttk.Label(frame, text="Output folder", style="Muted.TLabel").grid(row=4, column=0, columnspan=3, sticky="w", pady=(14, 0))
-        ttk.Entry(frame, textvariable=self.output_folder_var, width=44).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        ttk.Entry(frame, textvariable=self.output_folder_var, width=30).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         ttk.Button(frame, text="Browse", command=self._choose_output_folder).grid(row=5, column=2, sticky="ew", padx=(6, 0), pady=(4, 0))
 
     def _build_settings_card(self, parent: ttk.Frame) -> None:
@@ -254,19 +264,42 @@ class PdfRedactorApp:
             frame,
             text="Tip: drag on the preview to fill the coordinate boxes, then click Add cut.",
             style="Muted.TLabel",
-            wraplength=360,
+            wraplength=300,
         ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
         self.start_button = ttk.Button(frame, text="Start redaction batch", style="Accent.TButton", command=self._start_processing)
         self.start_button.grid(row=6, column=0, columnspan=4, sticky="ew", pady=(12, 0))
 
     def _build_preview_card(self, parent: ttk.Frame) -> None:
-        ttk.Label(parent, text="Preview and visual selector", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w")
-        self.canvas = tk.Canvas(parent, background="#f8fafc", highlightthickness=1, highlightbackground="#cbd5e1")
-        self.canvas.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        toolbar = ttk.Frame(parent)
+        toolbar.grid(row=0, column=0, sticky="ew")
+        toolbar.columnconfigure(0, weight=1)
+        ttk.Label(toolbar, text="Preview and visual selector", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Button(toolbar, text="Fit page", command=self._fit_preview_page).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(toolbar, text="Fit width", command=self._fit_preview_width).grid(row=0, column=2, padx=(6, 0))
+        ttk.Button(toolbar, text="100%", command=self._set_preview_actual_size).grid(row=0, column=3, padx=(6, 0))
+        ttk.Button(toolbar, text="-", width=3, command=lambda: self._zoom_preview(0.85)).grid(row=0, column=4, padx=(6, 0))
+        ttk.Label(toolbar, textvariable=self.preview_zoom_label_var, width=10, anchor="center").grid(row=0, column=5, padx=(6, 0))
+        ttk.Button(toolbar, text="+", width=3, command=lambda: self._zoom_preview(1.18)).grid(row=0, column=6, padx=(6, 0))
+
+        canvas_frame = ttk.Frame(parent)
+        canvas_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        canvas_frame.columnconfigure(0, weight=1)
+        canvas_frame.rowconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(canvas_frame, background="#f8fafc", highlightthickness=1, highlightbackground="#cbd5e1")
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        x_scrollbar = ttk.Scrollbar(canvas_frame, orient="horizontal", command=self.canvas.xview)
+        y_scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
+        x_scrollbar.grid(row=1, column=0, sticky="ew")
+        y_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.canvas.configure(xscrollcommand=x_scrollbar.set, yscrollcommand=y_scrollbar.set)
         self.canvas.bind("<ButtonPress-1>", self._on_canvas_press)
         self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
+        self.canvas.bind("<MouseWheel>", self._on_preview_mousewheel)
+        self.canvas.bind("<Button-4>", lambda _event: self.canvas.yview_scroll(-3, "units"))
+        self.canvas.bind("<Button-5>", lambda _event: self.canvas.yview_scroll(3, "units"))
         self.canvas.bind("<Configure>", lambda _event: self._render_preview())
 
     def _build_merge_tab(self, parent: ttk.Frame) -> None:
@@ -373,30 +406,70 @@ class PdfRedactorApp:
         except Exception as exc:  # noqa: BLE001 - UI should show friendly errors.
             messagebox.showerror("Preview error", f"Could not load preview: {exc}")
 
+    def _fit_preview_page(self) -> None:
+        self.preview_zoom_mode = "fit_page"
+        self._render_preview()
+
+    def _fit_preview_width(self) -> None:
+        self.preview_zoom_mode = "fit_width"
+        self._render_preview()
+
+    def _set_preview_actual_size(self) -> None:
+        self.preview_zoom_mode = "manual"
+        self.preview_manual_scale = 1.0
+        self._render_preview()
+
+    def _zoom_preview(self, factor: float) -> None:
+        if self.preview_zoom_mode != "manual":
+            self.preview_manual_scale = self.preview_scale
+            self.preview_zoom_mode = "manual"
+        self.preview_manual_scale = min(max(self.preview_manual_scale * factor, 0.25), 4.0)
+        self._render_preview()
+
+    def _on_preview_mousewheel(self, event: tk.Event[tk.Misc]) -> str | None:
+        if event.state & 0x0004:
+            self._zoom_preview(1.12 if event.delta > 0 else 0.89)
+            return "break"
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, "units")
+        return "break"
+
     def _render_preview(self) -> None:
         if not hasattr(self, "canvas"):
             return
         if self.preview_doc is None or self.preview_page_rect is None:
             self.canvas.delete("all")
             self.canvas.create_text(24, 24, anchor="nw", text="Select a PDF to preview and draw cut rectangles.", fill="#475569")
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
             return
 
         page = self.preview_doc.load_page(0)
         canvas_width = max(self.canvas.winfo_width(), 220)
         canvas_height = max(self.canvas.winfo_height(), 260)
-        scale = min((canvas_width - 30) / page.rect.width, (canvas_height - 30) / page.rect.height, 2.0)
+        available_width = max(canvas_width - 36, 120)
+        available_height = max(canvas_height - 36, 120)
+        if self.preview_zoom_mode == "fit_page":
+            scale = min(available_width / page.rect.width, available_height / page.rect.height, 2.0)
+            self.preview_zoom_label_var.set("Fit page")
+        elif self.preview_zoom_mode == "fit_width":
+            scale = min(available_width / page.rect.width, 3.0)
+            self.preview_zoom_label_var.set("Fit width")
+        else:
+            scale = self.preview_manual_scale
+            self.preview_zoom_label_var.set(f"{scale * 100:.0f}%")
+
         pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
         self.preview_image = tk.PhotoImage(data=pixmap.tobytes("png"))
         image_width = self.preview_image.width()
         image_height = self.preview_image.height()
-        origin_x = max(15, (canvas_width - image_width) / 2)
-        origin_y = max(15, (canvas_height - image_height) / 2)
+        origin_x = max(18, (canvas_width - image_width) / 2)
+        origin_y = max(18, (canvas_height - image_height) / 2)
 
         self.preview_scale = scale
         self.preview_origin = (origin_x, origin_y)
         self.canvas.delete("all")
         self.canvas.create_image(origin_x, origin_y, anchor="nw", image=self.preview_image)
         self._draw_all_cuts()
+        self._update_preview_scrollregion()
 
     def _toggle_page_selection(self) -> None:
         state = "disabled" if self.all_pages_var.get() else "normal"
@@ -486,6 +559,13 @@ class PdfRedactorApp:
             width = 3 if index == selected_index else 2
             self.canvas.create_rectangle(x0, y0, x1, y1, outline=outline, width=width, tags="selection")
             self.canvas.create_text(x0 + 5, y0 + 5, anchor="nw", text=str(index + 1), fill=outline, tags="selection")
+        self._update_preview_scrollregion()
+
+    def _update_preview_scrollregion(self) -> None:
+        if hasattr(self, "canvas"):
+            bbox = self.canvas.bbox("all")
+            if bbox is not None:
+                self.canvas.configure(scrollregion=(bbox[0] - 20, bbox[1] - 20, bbox[2] + 20, bbox[3] + 20))
 
     def _on_canvas_press(self, event: tk.Event[tk.Misc]) -> None:
         if self.preview_page_rect is None:
@@ -523,9 +603,11 @@ class PdfRedactorApp:
     def _canvas_to_pdf(self, x: float, y: float) -> tuple[float, float]:
         if self.preview_page_rect is None:
             return (0.0, 0.0)
+        canvas_x = self.canvas.canvasx(x)
+        canvas_y = self.canvas.canvasy(y)
         origin_x, origin_y = self.preview_origin
-        pdf_x = (x - origin_x) / self.preview_scale
-        pdf_y = (y - origin_y) / self.preview_scale
+        pdf_x = (canvas_x - origin_x) / self.preview_scale
+        pdf_y = (canvas_y - origin_y) / self.preview_scale
         pdf_x = min(max(pdf_x, 0.0), self.preview_page_rect.width)
         pdf_y = min(max(pdf_y, 0.0), self.preview_page_rect.height)
         return (pdf_x, pdf_y)
