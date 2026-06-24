@@ -133,8 +133,10 @@ class PdfRedactorApp:
 
         splitter = ttk.PanedWindow(parent, orient="horizontal")
         splitter.grid(row=0, column=0, sticky="nsew")
+        self.redact_splitter = splitter
 
         controls_area = ttk.Frame(splitter)
+        controls_area.configure(width=440)
         controls_area.columnconfigure(0, weight=1)
         controls_area.rowconfigure(0, weight=1)
         preview_area = ttk.Frame(splitter, padding=(8, 10, 10, 10))
@@ -143,6 +145,7 @@ class PdfRedactorApp:
 
         splitter.add(controls_area, weight=0)
         splitter.add(preview_area, weight=1)
+        self.root.after(200, lambda: splitter.sashpos(0, 440))
 
         controls = self._build_scrollable_controls(controls_area)
         self._build_input_card(controls)
@@ -152,16 +155,16 @@ class PdfRedactorApp:
 
     def _build_scrollable_controls(self, parent: ttk.Frame) -> ttk.Frame:
         container = ttk.Frame(parent)
-        container.grid(row=0, column=0, sticky="ns")
+        container.grid(row=0, column=0, sticky="nsew")
         container.rowconfigure(0, weight=1)
         container.columnconfigure(0, weight=1)
 
-        canvas = tk.Canvas(container, width=330, background="#eef2f7", highlightthickness=0)
+        canvas = tk.Canvas(container, width=420, background="#eef2f7", highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        controls = ttk.Frame(canvas, padding=10)
+        controls = ttk.Frame(canvas, padding=12)
         window_id = canvas.create_window((0, 0), window=controls, anchor="nw")
 
-        canvas.grid(row=0, column=0, sticky="ns")
+        canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
         canvas.configure(yscrollcommand=scrollbar.set)
 
@@ -185,17 +188,16 @@ class PdfRedactorApp:
         frame = self._card(parent, "1. Choose input and output", row=0)
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
-        frame.columnconfigure(2, weight=1)
 
-        ttk.Label(frame, text="PDF file or folder", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w")
-        ttk.Entry(frame, textvariable=self.input_path_var, width=30).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 8))
-        ttk.Button(frame, text="Select PDF", command=self._choose_pdf).grid(row=3, column=0, sticky="ew")
-        ttk.Button(frame, text="Select Folder", command=self._choose_folder).grid(row=3, column=1, sticky="ew", padx=6)
-        ttk.Button(frame, text="Load Preview", command=self._load_preview_from_input).grid(row=3, column=2, sticky="ew")
+        ttk.Label(frame, text="PDF file or folder", style="Muted.TLabel").grid(row=1, column=0, columnspan=2, sticky="w")
+        ttk.Entry(frame, textvariable=self.input_path_var, width=34).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 8))
+        ttk.Button(frame, text="Select PDF", command=self._choose_pdf).grid(row=3, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(frame, text="Select Folder", command=self._choose_folder).grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
+        ttk.Button(frame, text="Load selected preview", command=self._load_preview_from_input).grid(row=4, column=0, columnspan=2, sticky="ew")
 
-        ttk.Label(frame, text="Output folder", style="Muted.TLabel").grid(row=4, column=0, columnspan=3, sticky="w", pady=(14, 0))
-        ttk.Entry(frame, textvariable=self.output_folder_var, width=30).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-        ttk.Button(frame, text="Browse", command=self._choose_output_folder).grid(row=5, column=2, sticky="ew", padx=(6, 0), pady=(4, 0))
+        ttk.Label(frame, text="Output folder", style="Muted.TLabel").grid(row=5, column=0, columnspan=2, sticky="w", pady=(14, 0))
+        ttk.Entry(frame, textvariable=self.output_folder_var, width=34).grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 8))
+        ttk.Button(frame, text="Choose output folder", command=self._choose_output_folder).grid(row=7, column=0, columnspan=2, sticky="ew")
 
     def _build_settings_card(self, parent: ttk.Frame) -> None:
         frame = self._card(parent, "2. Configure processing", row=1)
@@ -233,7 +235,7 @@ class PdfRedactorApp:
 
     def _build_cuts_card(self, parent: ttk.Frame) -> None:
         frame = self._card(parent, "3. Add one or more cuts", row=2)
-        for column in range(4):
+        for column in range(2):
             frame.columnconfigure(column, weight=1)
 
         entries = (
@@ -243,32 +245,35 @@ class PdfRedactorApp:
             ("y1", self.y1_var),
         )
         for index, (label, variable) in enumerate(entries):
-            ttk.Label(frame, text=label, style="Muted.TLabel").grid(row=1, column=index, sticky="w")
+            row = 1 + (index // 2) * 2
+            column = index % 2
+            ttk.Label(frame, text=label, style="Muted.TLabel").grid(row=row, column=column, sticky="w", padx=(0 if column == 0 else 8, 0))
             ttk.Entry(frame, textvariable=variable, width=10).grid(
-                row=2,
-                column=index,
+                row=row + 1,
+                column=column,
                 sticky="ew",
-                padx=(0 if index == 0 else 6, 0),
+                padx=(0 if column == 0 else 8, 0),
+                pady=(0, 6),
             )
 
-        ttk.Button(frame, text="Add cut", command=self._add_cut).grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        ttk.Button(frame, text="Update selected", command=self._update_selected_cut).grid(row=3, column=1, sticky="ew", padx=6, pady=(10, 0))
-        ttk.Button(frame, text="Remove selected", command=self._remove_selected_cut).grid(row=3, column=2, sticky="ew", pady=(10, 0))
-        ttk.Button(frame, text="Clear cuts", command=self._clear_cuts).grid(row=3, column=3, sticky="ew", padx=(6, 0), pady=(10, 0))
+        ttk.Button(frame, text="Add cut", command=self._add_cut).grid(row=5, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(frame, text="Update selected", command=self._update_selected_cut).grid(row=5, column=1, sticky="ew", padx=(8, 0), pady=(8, 0))
+        ttk.Button(frame, text="Remove selected", command=self._remove_selected_cut).grid(row=6, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(frame, text="Clear cuts", command=self._clear_cuts).grid(row=6, column=1, sticky="ew", padx=(8, 0), pady=(8, 0))
 
         self.cut_listbox = tk.Listbox(frame, height=5, exportselection=False)
-        self.cut_listbox.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+        self.cut_listbox.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         self.cut_listbox.bind("<<ListboxSelect>>", self._on_cut_selected)
 
         ttk.Label(
             frame,
             text="Tip: drag on the preview to fill the coordinate boxes, then click Add cut.",
             style="Muted.TLabel",
-            wraplength=300,
-        ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(8, 0))
+            wraplength=360,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
         self.start_button = ttk.Button(frame, text="Start redaction batch", style="Accent.TButton", command=self._start_processing)
-        self.start_button.grid(row=6, column=0, columnspan=4, sticky="ew", pady=(12, 0))
+        self.start_button.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(12, 0))
 
     def _build_preview_card(self, parent: ttk.Frame) -> None:
         toolbar = ttk.Frame(parent)
